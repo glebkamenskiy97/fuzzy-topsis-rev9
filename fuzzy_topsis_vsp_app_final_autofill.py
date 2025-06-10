@@ -68,8 +68,8 @@ for alt in alt_labels:
         val = data_input[(data_input["Альтернатива"] == alt) & (data_input["Критерий"] == crit)]["Оценка (l,m,u)"].values[0]
         try:
             l, m, u = map(float, val.strip().split(","))
-            if l > u:
-                st.info(f"⚠️ Подозрительная TFN для {alt}, {crit}: левый конец больше правого (l > u)")
+            if not (l <= m <= u):
+                st.info(f"⚠️ Некорректный TFN для {alt}, {crit}: должно быть l ≤ m ≤ u")
             row.append((l, m, u))
         except:
             st.error(f"Неверный формат для {alt}, {crit}. Ожидается: l,m,u")
@@ -84,18 +84,20 @@ if data.shape[1] != len(criteria):
 
 # --- Fuzzy TOPSIS функции ---
 def normalize(data, benefit):
-    norm = [[] for _ in range(data.shape[0])]  # для каждой альтернативы
-for j in range(data.shape[1]):  # по каждому критерию
-    col = data[:, j]
-    if benefit[j]:
-        max_val = max([u for l, m, u in col])
-        norm_col = [(l/max_val, m/max_val, u/max_val) if max_val != 0 else (0, 0, 0) for l, m, u in col]
-    else:
-        min_val = min([l for l, m, u in col if l > 0]) if any(l > 0 for l, _, _ in col) else 1
-        norm_col = [(min_val/u if u != 0 else 0, min_val/m if m != 0 else 0, min_val/l if l != 0 else 0) for l, m, u in col]
-    for i, val in enumerate(norm_col):
-        norm[i].append(val)
-return np.array(norm)
+    num_alts, num_criteria = data.shape
+    norm_data = []
+    for j in range(num_criteria):
+        col = data[:, j]
+        if benefit[j]:
+            max_val = max(u for l, m, u in col)
+            norm_col = [(l / max_val, m / max_val, u / max_val) if max_val != 0 else (0, 0, 0) for l, m, u in col]
+        else:
+            min_val = min(l for l, m, u in col if l > 0) if any(l > 0 for l, _, _ in col) else 1
+            norm_col = [(min_val / u if u != 0 else 0.0,
+                         min_val / m if m != 0 else 0.0,
+                         min_val / l if l != 0 else 0.0) for l, m, u in col]
+        norm_data.append(norm_col)
+    return np.array(norm_data).transpose(1, 0)
 
 def weighted_fuzzy_decision(norm_data, weights):
     return np.array([[(r[0]*w[0], r[1]*w[1], r[2]*w[2]) for r, w in zip(row, weights)] for row in norm_data])
@@ -111,8 +113,8 @@ def distance(a, b):
 def closeness(weighted_data, pis, nis):
     cc = []
     for i in range(weighted_data.shape[0]):
-        d_pos = np.sqrt(sum([distance(weighted_data[i, j], pis[j])**2 for j in range(weighted_data.shape[1])]))
-        d_neg = np.sqrt(sum([distance(weighted_data[i, j], nis[j])**2 for j in range(weighted_data.shape[1])]))
+        d_pos = sum(distance(weighted_data[i, j], pis[j]) for j in range(weighted_data.shape[1]))
+        d_neg = sum(distance(weighted_data[i, j], nis[j]) for j in range(weighted_data.shape[1]))
         cc.append(d_neg / (d_pos + d_neg) if (d_pos + d_neg) != 0 else np.nan)
     return cc
 
@@ -121,12 +123,11 @@ st.subheader("Выбор визуализаций")
 show_table = st.checkbox("Показать таблицу", value=True)
 show_bar = st.checkbox("Показать столбчатый график", value=True)
 show_tfn = st.checkbox("Показать TFN графики", value=True)
-show_radar = st.checkbox("Показать радар-график", value=True)
 
 if st.button("Выполнить расчет и визуализацию") and valid_input:
     norm_data = normalize(data, benefit_criteria)
     if norm_data.shape[1] != len(criteria):
-        st.error(f"Ошибка: после нормализации данных получено {norm_data.shape[1]} критериев, ожидается {len(criteria)}. Проверьте ввод данных.")
+        st.error(f"Ошибка: после нормализации данных получено {norm_data.shape[1]} критериев, ожидается {len(criteria)}.")
         st.stop()
 
     weighted_data = weighted_fuzzy_decision(norm_data, weights)
@@ -156,16 +157,3 @@ if st.button("Выполнить расчет и визуализацию") and 
                     ax.set_title(f"TFN по критерию: {crit}")
                     ax.legend()
                     st.pyplot(fig)
-            if show_radar:
-                radar_df = pd.DataFrame(columns=["Альтернатива"] + criteria)
-                for i in range(num_alternatives):
-                    row = [alt_labels[i]]
-                    for j in range(norm_data.shape[1]):
-                        try:
-                            row.append(norm_data[i, j][1])
-                        except Exception as e:
-                            st.warning(f"⚠️ Ошибка в данных: Альт {i+1}, критерий {j}: {e}")
-                            row.append(np.nan)
-                    radar_df.loc[len(radar_df)] = row
-                fig = px.line_polar(radar_df, r=criteria, theta=criteria, line_close=True, color=radar_df["Альтернатива"])
-                st.plotly_chart(fig)
