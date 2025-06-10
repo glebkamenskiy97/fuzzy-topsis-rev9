@@ -84,17 +84,18 @@ if data.shape[1] != len(criteria):
 
 # --- Fuzzy TOPSIS функции ---
 def normalize(data, benefit):
-    norm = []
-    for j in range(data.shape[1]):
-        col = data[:, j]
-        if benefit[j]:
-            max_val = max([u for l, m, u in col])
-            norm_col = [(l/max_val, m/max_val, u/max_val) if max_val != 0 else (0, 0, 0) for l, m, u in col]
-        else:
-            min_val = min([l for l, m, u in col if l > 0]) if any(l > 0 for l, _, _ in col) else 1
-            norm_col = [(min_val/u if u != 0 else 0, min_val/m if m != 0 else 0, min_val/l if l != 0 else 0) for l, m, u in col]
-        norm.append(norm_col)
-    return np.array(norm).T
+    norm = [[] for _ in range(data.shape[0])]  # для каждой альтернативы
+for j in range(data.shape[1]):  # по каждому критерию
+    col = data[:, j]
+    if benefit[j]:
+        max_val = max([u for l, m, u in col])
+        norm_col = [(l/max_val, m/max_val, u/max_val) if max_val != 0 else (0, 0, 0) for l, m, u in col]
+    else:
+        min_val = min([l for l, m, u in col if l > 0]) if any(l > 0 for l, _, _ in col) else 1
+        norm_col = [(min_val/u if u != 0 else 0, min_val/m if m != 0 else 0, min_val/l if l != 0 else 0) for l, m, u in col]
+    for i, val in enumerate(norm_col):
+        norm[i].append(val)
+return np.array(norm)
 
 def weighted_fuzzy_decision(norm_data, weights):
     return np.array([[(r[0]*w[0], r[1]*w[1], r[2]*w[2]) for r, w in zip(row, weights)] for row in norm_data])
